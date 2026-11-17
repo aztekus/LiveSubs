@@ -1,0 +1,52 @@
+# Compile l'APK de LiveSubs sur les serveurs de GitHub et le publie dans « Releases ».
+# Fonctionne que le projet soit déposé tel quel ou sous forme de fichier LiveSubs.zip.
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trouver le projet (et le dézipper si besoin)
+        run: |
+          shopt -s nullglob
+          for z in *.zip; do unzip -oq "$z"; done
+          dir=$(dirname "$(find . -name settings.gradle -not -path './.git/*' | head -n 1)")
+          test -f "$dir/settings.gradle"
+          echo "PROJECT_DIR=$dir" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Compiler l'APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle --no-daemon assembleDebug
+
+      - name: Récupérer l'APK
+        run: cp "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" LiveSubs.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LiveSubs-apk
+          path: LiveSubs.apk
+
+      - name: Publier dans Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete apk --yes --cleanup-tag || true
+          gh release create apk LiveSubs.apk --title "LiveSubs (APK)" --notes "Compilé automatiquement." --target "$GITHUB_SHA"
